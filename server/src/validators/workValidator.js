@@ -6,3 +6,5 @@ exports.createWorkSchema = z.object({
   description: z.string().trim().optional(),
   images: z.array(z.string().url("رابط صورة غير صحيح")).optional(),
 });
+
+exports.updateWorkSchema = exports.createWorkSchema.partial();
