@@ -4,6 +4,13 @@ const bcrypt = require("bcrypt");
 const userSchema = new mongoose.Schema(
   {
     username: { type: String, required: true, unique: true, trim: true },
+    email: {
+      type: String,
+      unique: true,
+      sparse: true,
+      trim: true,
+      lowercase: true,
+    },
     password: { type: String, required: true, select: false },
     role: { type: String, enum: ["admin", "customer"], default: "customer" },
     refreshTokens: { type: [String], default: [], select: false },
@@ -11,13 +18,13 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// hashed password
+// تشفير الباسورد قبل الحفظ (لو اتغيّر بس)
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
   this.password = await bcrypt.hash(this.password, 12);
 });
 
-// compare password
+// مقارنة الباسورد وقت الـ login
 userSchema.methods.comparePassword = function (plain) {
   return bcrypt.compare(plain, this.password);
 };

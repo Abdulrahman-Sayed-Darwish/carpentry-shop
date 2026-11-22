@@ -7,25 +7,64 @@ const {
   clearRefreshCookie,
 } = require("../utils/tokens");
 
+exports.register = async (req, res, next) => {
+  try {
+    const { username, email, password } = req.body;
+
+    // role مش بيجي من الـ body أبدًا: دايمًا customer
+    const user = await User.create({
+      username,
+      email,
+      password,
+      role: "customer",
+    });
+
+    const accessToken = signAccessToken(user);
+    const refreshToken = signRefreshToken(user);
+
+    user.refreshTokens.push(refreshToken);
+    await user.save();
+
+    setRefreshCookie(res, refreshToken);
+
+    res.status(201).json({
+      data: {
+        accessToken,
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+        },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+//  login
 exports.login = async (req, res, next) => {
   try {
-    const { username, password } = req.body;
+    const { identifier, password } = req.body;
 
-    const user = await User.findOne({ username }).select(
-      "+password +refreshTokens",
-    );
+    // لو فيه @ يبقى إيميل، غير كده username
+    const query = identifier.includes("@")
+      ? { email: identifier.toLowerCase() }
+      : { username: identifier };
 
+    const user = await User.findOne(query).select("+password +refreshTokens");
+
+    // نفس الرسالة في الحالتين عشان ما نكشفش هل الحساب موجود
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({
         error: "INVALID_CREDENTIALS",
-        message: "اسم المستخدم أو الباسورد غلط",
+        message: "بيانات الدخول غلط",
       });
     }
 
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user);
 
-    //  store refresh token in db to can cancle
     user.refreshTokens.push(refreshToken);
     await user.save();
 
@@ -34,7 +73,12 @@ exports.login = async (req, res, next) => {
     res.json({
       data: {
         accessToken,
-        user: { id: user._id, username: user.username, role: user.role },
+        user: {
+          id: user._id,
+          username: user.username,
+          email: user.email,
+          role: user.role,
+        },
       },
     });
   } catch (err) {

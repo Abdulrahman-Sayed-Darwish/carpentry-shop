@@ -62,3 +62,50 @@ exports.createWork = async (req, res, next) => {
     next(err);
   }
 };
+
+exports.updateWork = async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "العمل غير موجود" });
+    }
+
+    const work = await Work.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    }).populate("category", "name slug");
+
+    if (!work) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "العمل غير موجود" });
+    }
+
+    res.json({ data: work });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.deleteWork = async (req, res, next) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "العمل غير موجود" });
+    }
+
+    const work = await Work.findByIdAndDelete(req.params.id);
+
+    if (!work) {
+      return res
+        .status(404)
+        .json({ error: "NOT_FOUND", message: "العمل غير موجود" });
+    }
+
+    res.json({ data: { message: "تم حذف العمل" } });
+  } catch (err) {
+    next(err);
+  }
+};

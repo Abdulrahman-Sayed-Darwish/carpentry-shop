@@ -10,3 +10,5 @@ exports.createCategorySchema = z.object({
   image: z.string().url("رابط الصورة غير صحيح").optional(),
   parentCategory: z.string().optional(),
 });
+
+exports.updateCategorySchema = exports.createCategorySchema.partial();
