@@ -6,6 +6,7 @@ const worksRoutes = require("./routes/worksRoutes");
 const cookieParser = require("cookie-parser");
 const authRoutes = require("./routes/authRoutes");
 const uploadsRoutes = require("./routes/uploadsRoutes");
+const productsRoutes = require("./routes/productsRoutes");
 const app = express();
 app.use(
   cors({
@@ -24,7 +25,9 @@ app.use("/api/auth", authRoutes);
 app.use("/api/uploads", uploadsRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/works", worksRoutes);
+app.use("/api/products", productsRoutes);
 
+// midleware handler error
 app.use((err, req, res, next) => {
   if (err.code === 11000) {
     return res.status(409).json({
