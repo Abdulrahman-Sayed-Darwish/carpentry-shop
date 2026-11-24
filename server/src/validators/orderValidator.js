@@ -26,3 +26,18 @@ exports.createOrderSchema = z.object({
   }),
   notes: z.string().trim().max(500, "الملاحظات طويلة جدًا").optional(),
 });
+
+exports.updateOrderStatusSchema = z.object({
+  status: z.enum(
+    ["pending", "confirmed", "in-progress", "delivered", "cancelled"],
+    {
+      errorMap: () => ({ message: "حالة الطلب غير صحيحة" }),
+    },
+  ),
+});
+
+exports.updatePaymentSchema = z.object({
+  paymentStatus: z.enum(["unpaid", "paid"], {
+    errorMap: () => ({ message: "حالة الدفع لازم تكون unpaid أو paid" }),
+  }),
+});

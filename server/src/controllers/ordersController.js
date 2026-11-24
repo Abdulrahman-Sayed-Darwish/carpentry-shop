@@ -134,3 +134,150 @@ exports.getOrderById = async (req, res, next) => {
     next(err);
   }
 };
+// admin
+const ORDER_STATUSES = [
+  "pending",
+  "confirmed",
+  "in-progress",
+  "delivered",
+  "cancelled",
+];
+const PAYMENT_STATUSES = ["unpaid", "paid"];
+
+//
+const ALLOWED_TRANSITIONS = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["in-progress", "cancelled"],
+  "in-progress": ["delivered", "cancelled"],
+  delivered: [],
+  cancelled: [],
+};
+exports.getAllOrders = async (req, res, next) => {
+  try {
+    const page = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 10, 1), 50);
+    const skip = (page - 1) * limit;
+
+    const { status, paymentStatus } = req.query;
+    const filter = {};
+
+    if (status) {
+      if (!ORDER_STATUSES.includes(status)) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "حالة الطلب غير صحيحة",
+        });
+      }
+      filter.status = status;
+    }
+
+    if (paymentStatus) {
+      if (!PAYMENT_STATUSES.includes(paymentStatus)) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "حالة الدفع غير صحيحة",
+        });
+      }
+      filter.paymentStatus = paymentStatus;
+    }
+
+    const [orders, total] = await Promise.all([
+      Order.find(filter)
+        .populate("user", "username email")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Order.countDocuments(filter),
+    ]);
+
+    res.json({
+      data: orders,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updateOrderStatus = async (req, res, next) => {
+  try {
+    const { status: newStatus } = req.body;
+
+    const notFound = () =>
+      res.status(404).json({ error: "NOT_FOUND", message: "الطلب غير موجود" });
+
+    if (!mongoose.isValidObjectId(req.params.id)) return notFound();
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return notFound();
+
+    // 1)
+    const allowed = ALLOWED_TRANSITIONS[order.status];
+    if (!allowed.includes(newStatus)) {
+      return res.status(400).json({
+        error: "INVALID_TRANSITION",
+        message: `مينفعش تنقل الطلب من "${order.status}" إلى "${newStatus}"`,
+      });
+    }
+
+    // 2) نحدّث الحالة بشرط ذرّي: بس لو الحالة لسه زي ما قرأناها
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, status: order.status },
+      { status: newStatus },
+      { new: true },
+    );
+
+    if (!updated) {
+      // حد غيّر الحالة في نفس اللحظة (مثلًا ضغطتين إلغاء)
+      return res.status(409).json({
+        error: "STATUS_CHANGED",
+        message: "حالة الطلب اتغيّرت، حدّث الصفحة وجرّب تاني",
+      });
+    }
+
+    // 3) لو اتلغى، نرجّع المخزون (بس لأن التحديث الذرّي نجح)
+    if (newStatus === "cancelled") {
+      await Promise.all(
+        updated.items.map((item) =>
+          Product.updateOne(
+            { _id: item.product },
+            { $inc: { stock: item.quantity } },
+          ),
+        ),
+      );
+    }
+
+    res.json({ data: updated });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.updatePaymentStatus = async (req, res, next) => {
+  try {
+    const { paymentStatus } = req.body;
+
+    const notFound = () =>
+      res.status(404).json({ error: "NOT_FOUND", message: "الطلب غير موجود" });
+
+    if (!mongoose.isValidObjectId(req.params.id)) return notFound();
+
+    const order = await Order.findById(req.params.id);
+    if (!order) return notFound();
+
+    // مينفعش نسجّل دفع على طلب ملغي
+    if (order.status === "cancelled") {
+      return res.status(400).json({
+        error: "ORDER_CANCELLED",
+        message: "مينفعش تغيّر حالة الدفع لطلب ملغي",
+      });
+    }
+
+    order.paymentStatus = paymentStatus;
+    await order.save();
+
+    res.json({ data: order });
+  } catch (err) {
+    next(err);
+  }
+};
