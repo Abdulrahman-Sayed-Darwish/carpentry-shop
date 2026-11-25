@@ -7,7 +7,7 @@ const {
   deleteProduct,
 } = require("../controllers/productsController");
 const validate = require("../middlewares/validate");
-const { protect, restrictTo } = require("../middlewares/auth");
+const { protect, restrictTo, optionalAuth } = require("../middlewares/auth");
 const {
   createProductSchema,
   updateProductSchema,
@@ -16,8 +16,8 @@ const {
 const router = express.Router();
 
 // all
-router.get("/", getAllProducts);
-router.get("/:id", getProductById);
+router.get("/", optionalAuth, getAllProducts);
+router.get("/:id", optionalAuth, getProductById);
 
 // admin only
 router.post(
