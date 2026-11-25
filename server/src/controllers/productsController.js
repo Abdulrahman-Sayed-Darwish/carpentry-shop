@@ -12,7 +12,19 @@ exports.getAllProducts = async (req, res, next) => {
 
     const { category, minPrice, maxPrice, search } = req.query;
 
-    const filter = { isActive: true };
+    const isAdmin = req.user && req.user.role === "admin";
+
+    const filter = isAdmin ? {} : { isActive: true };
+
+    if (isAdmin && req.query.isActive !== undefined) {
+      if (!["true", "false"].includes(req.query.isActive)) {
+        return res.status(400).json({
+          error: "VALIDATION_ERROR",
+          message: "isActive لازم تكون true أو false",
+        });
+      }
+      filter.isActive = req.query.isActive === "true";
+    }
 
     if (category) {
       if (!mongoose.isValidObjectId(category)) {
@@ -57,10 +69,14 @@ exports.getProductById = async (req, res, next) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) return notFound(res);
 
-    const product = await Product.findOne({
-      _id: req.params.id,
-      isActive: true,
-    }).populate("category", "name slug");
+    const isAdmin = req.user && req.user.role === "admin";
+    const filter = { _id: req.params.id };
+    if (!isAdmin) filter.isActive = true;
+
+    const product = await Product.findOne(filter).populate(
+      "category",
+      "name slug",
+    );
 
     if (!product) return notFound(res);
     res.json({ data: product });

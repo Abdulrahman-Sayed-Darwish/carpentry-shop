@@ -8,6 +8,7 @@ const {
 } = require("../controllers/customRequestsController");
 const validate = require("../middlewares/validate");
 const { protect, restrictTo, optionalAuth } = require("../middlewares/auth");
+const { customRequestLimiter } = require("../middlewares/rateLimiters");
 const {
   createCustomRequestSchema,
   updateCustomRequestSchema,
@@ -15,9 +16,9 @@ const {
 
 const router = express.Router();
 
-// زائر أو عميل
 router.post(
   "/",
+  customRequestLimiter,
   optionalAuth,
   validate(createCustomRequestSchema),
   createCustomRequest,
