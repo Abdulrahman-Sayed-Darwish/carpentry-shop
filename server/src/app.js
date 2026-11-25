@@ -8,6 +8,7 @@ const authRoutes = require("./routes/authRoutes");
 const uploadsRoutes = require("./routes/uploadsRoutes");
 const productsRoutes = require("./routes/productsRoutes");
 const ordersRoutes = require("./routes/ordersRoutes");
+const customRequestsRoutes = require("./routes/customRequestsRoutes");
 const app = express();
 app.use(
   cors({
@@ -28,6 +29,7 @@ app.use("/api/categories", categoriesRoutes);
 app.use("/api/works", worksRoutes);
 app.use("/api/products", productsRoutes);
 app.use("/api/orders", ordersRoutes);
+app.use("/api/custom-requests", customRequestsRoutes);
 // midleware handler error
 app.use((err, req, res, next) => {
   if (err.code === 11000) {
