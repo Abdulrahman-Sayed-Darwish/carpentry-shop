@@ -6,6 +6,7 @@ const {
   getAllOrders,
   updateOrderStatus,
   updatePaymentStatus,
+  cancelMyOrder,
 } = require("../controllers/ordersController");
 const validate = require("../middlewares/validate");
 const { protect, restrictTo } = require("../middlewares/auth");
@@ -19,11 +20,9 @@ const router = express.Router();
 
 router.use(protect);
 
-// للعميل (والأدمن كمان)
 router.post("/", validate(createOrderSchema), createOrder);
 router.get("/my", getMyOrders);
-
-// للأدمن بس
+router.patch("/:id/cancel", cancelMyOrder);
 router.get("/", restrictTo("admin"), getAllOrders);
 router.patch(
   "/:id/status",
@@ -31,6 +30,7 @@ router.patch(
   validate(updateOrderStatusSchema),
   updateOrderStatus,
 );
+
 router.patch(
   "/:id/payment",
   restrictTo("admin"),
@@ -38,7 +38,6 @@ router.patch(
   updatePaymentStatus,
 );
 
-// صاحب الطلب أو الأدمن (الفحص جوه الـ Controller)
 router.get("/:id", getOrderById);
 
 module.exports = router;

@@ -35,7 +35,7 @@ exports.errorHandler = (err, req, res, next) => {
   if (err.code === "LIMIT_UNEXPECTED_FILE") {
     return res.status(400).json({
       error: "TOO_MANY_FILES",
-      message: "أقصى عدد 10 صور في المرة",
+      message: "عدد الصور أكبر من المسموح",
     });
   }
 
