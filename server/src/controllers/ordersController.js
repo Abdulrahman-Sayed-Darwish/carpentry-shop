@@ -1,22 +1,19 @@
 const mongoose = require("mongoose");
 const Product = require("../models/Product");
 const Order = require("../models/Order");
-const restoreStock = (deducted) =>
-  Promise.all(
-    deducted.map((item) =>
-      Product.updateOne(
-        { _id: item.product },
-        { $inc: { stock: item.quantity } },
-      ),
-    ),
-  );
-
+class AppError extends Error {
+  constructor(status, code, message) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
 exports.createOrder = async (req, res, next) => {
-  const deducted = [];
+  const session = await mongoose.startSession();
   try {
     const { items, shippingAddress, notes } = req.body;
 
-    const quantities = new Map();
+    const quantities = new Map(); // ["productId" , "2"]
     for (const item of items) {
       quantities.set(
         item.productId,
@@ -24,71 +21,78 @@ exports.createOrder = async (req, res, next) => {
       );
     }
 
-    const ids = [...quantities.keys()];
-    const products = await Product.find({ _id: { $in: ids }, isActive: true });
-
-    if (products.length !== ids.length) {
-      return res.status(400).json({
-        error: "PRODUCT_UNAVAILABLE",
-        message: "في منتج في الطلب مش موجود أو مش متاح",
-      });
-    }
-
-    const orderItems = [];
-    let totalAmount = 0;
-
-    for (const product of products) {
-      const quantity = quantities.get(product._id.toString());
-
-      if (product.stock < quantity) {
-        return res.status(400).json({
-          error: "INSUFFICIENT_STOCK",
-          message: `المخزون المتاح من "${product.name}" هو ${product.stock} بس`,
-        });
-      }
-
-      orderItems.push({
-        product: product._id,
-        name: product.name,
-        unitPrice: product.price,
-        quantity,
-      });
-      totalAmount += product.price * quantity;
-    }
-
-    for (const item of orderItems) {
-      const result = await Product.updateOne(
-        { _id: item.product, stock: { $gte: item.quantity } },
-        { $inc: { stock: -item.quantity } },
-      );
-
-      if (result.modifiedCount === 0) {
-        await restoreStock(deducted);
-        return res.status(409).json({
-          error: "STOCK_CHANGED",
-          message: `"${item.name}" المخزون اتغيّر، جرّب تاني`,
-        });
-      }
-      deducted.push(item);
-    }
-
     let order;
-    try {
-      order = await Order.create({
-        user: req.user.id,
-        items: orderItems,
-        totalAmount: Math.round(totalAmount * 100) / 100,
-        shippingAddress,
-        notes,
-      });
-    } catch (err) {
-      await restoreStock(deducted);
-      throw err;
-    }
+    //  transaction
+    await session.withTransaction(async () => {
+      const ids = [...quantities.keys()]; // productId
+      // get  allProducts by ids
+      const products = await Product.find({
+        _id: { $in: ids },
+        isActive: true,
+      }).session(session);
+
+      if (products.length !== ids.length) {
+        throw new AppError(
+          400,
+          "PRODUCT_UNAVAILABLE",
+          "في منتج في الطلب مش موجود أو مش متاح",
+        );
+      }
+
+      const orderItems = [];
+      let totalAmount = 0;
+
+      for (const product of products) {
+        const quantity = quantities.get(product._id.toString()); // get quantity from quantities
+
+        const result = await Product.updateOne(
+          { _id: product._id, stock: { $gte: quantity } },
+          { $inc: { stock: -quantity } },
+          { session },
+        );
+
+        if (result.modifiedCount === 0) {
+          throw new AppError(
+            400,
+            "INSUFFICIENT_STOCK",
+            `المخزون المتاح من "${product.name}" غير كافي`,
+          );
+        }
+
+        orderItems.push({
+          product: product._id,
+          name: product.name,
+          unitPrice: product.price,
+          quantity,
+        });
+        totalAmount += product.price * quantity;
+      }
+
+      const [created] = await Order.create(
+        [
+          {
+            user: req.user.id,
+            items: orderItems,
+            totalAmount: Math.round(totalAmount * 100) / 100,
+            shippingAddress,
+            notes,
+          },
+        ],
+        { session },
+      );
+      order = created;
+    });
 
     res.status(201).json({ data: order });
   } catch (err) {
+    if (err instanceof AppError) {
+      return res
+        .status(err.status)
+        .json({ error: err.code, message: err.message });
+    }
     next(err);
+  } finally {
+    session.endSession();
   }
 };
 
@@ -211,7 +215,6 @@ exports.updateOrderStatus = async (req, res, next) => {
     const order = await Order.findById(req.params.id);
     if (!order) return notFound();
 
-    // 1)
     const allowed = ALLOWED_TRANSITIONS[order.status];
     if (!allowed.includes(newStatus)) {
       return res.status(400).json({
@@ -220,31 +223,37 @@ exports.updateOrderStatus = async (req, res, next) => {
       });
     }
 
-    // 2) نحدّث الحالة بشرط ذرّي: بس لو الحالة لسه زي ما قرأناها
-    const updated = await Order.findOneAndUpdate(
-      { _id: order._id, status: order.status },
-      { status: newStatus },
-      { new: true },
-    );
+    const session = await mongoose.startSession();
+    let updated;
+
+    try {
+      await session.withTransaction(async () => {
+        updated = await Order.findOneAndUpdate(
+          { _id: order._id, status: order.status },
+          { status: newStatus },
+          { new: true, session },
+        );
+
+        if (!updated) return;
+        if (newStatus === "cancelled") {
+          for (const item of updated.items) {
+            await Product.updateOne(
+              { _id: item.product },
+              { $inc: { stock: item.quantity } },
+              { session },
+            );
+          }
+        }
+      });
+    } finally {
+      session.endSession();
+    }
 
     if (!updated) {
-      // حد غيّر الحالة في نفس اللحظة (مثلًا ضغطتين إلغاء)
       return res.status(409).json({
         error: "STATUS_CHANGED",
         message: "حالة الطلب اتغيّرت، حدّث الصفحة وجرّب تاني",
       });
-    }
-
-    // 3) لو اتلغى، نرجّع المخزون (بس لأن التحديث الذرّي نجح)
-    if (newStatus === "cancelled") {
-      await Promise.all(
-        updated.items.map((item) =>
-          Product.updateOne(
-            { _id: item.product },
-            { $inc: { stock: item.quantity } },
-          ),
-        ),
-      );
     }
 
     res.json({ data: updated });
@@ -277,6 +286,63 @@ exports.updatePaymentStatus = async (req, res, next) => {
     await order.save();
 
     res.json({ data: order });
+  } catch (err) {
+    next(err);
+  }
+};
+
+exports.cancelMyOrder = async (req, res, next) => {
+  try {
+    const notFound = () =>
+      res.status(404).json({ error: "NOT_FOUND", message: "الطلب غير موجود" });
+
+    if (!mongoose.isValidObjectId(req.params.id)) return notFound();
+
+    const order = await Order.findOne({
+      _id: req.params.id,
+      user: req.user.id,
+    });
+    if (!order) return notFound();
+
+    if (order.status !== "pending") {
+      return res.status(400).json({
+        error: "CANNOT_CANCEL",
+        message: "مينفعش تلغي الطلب بعد ما المحل يأكّده، تواصل معانا",
+      });
+    }
+
+    const session = await mongoose.startSession();
+    let updated;
+
+    try {
+      await session.withTransaction(async () => {
+        updated = await Order.findOneAndUpdate(
+          { _id: order._id, user: req.user.id, status: "pending" },
+          { status: "cancelled" },
+          { new: true, session },
+        );
+
+        if (!updated) return;
+        for (const item of updated.items) {
+          await Product.updateOne(
+            { _id: item.product },
+            { $inc: { stock: item.quantity } },
+            { session },
+          );
+        }
+      });
+    } finally {
+      session.endSession();
+    }
+
+    if (!updated) {
+      return res.status(409).json({
+        error: "STATUS_CHANGED",
+        message: "حالة الطلب اتغيّرت، حدّث الصفحة وجرّب تاني",
+      });
+    }
+
+    res.json({ data: updated });
   } catch (err) {
     next(err);
   }
