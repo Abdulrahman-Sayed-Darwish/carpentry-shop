@@ -38,7 +38,13 @@ exports.errorHandler = (err, req, res, next) => {
       message: "عدد الصور أكبر من المسموح",
     });
   }
-
+  // Origin blocked by CORS
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({
+      error: "CORS_BLOCKED",
+      message: "الأصل ده غير مسموح",
+    });
+  }
   console.error(err);
   res.status(500).json({
     error: "SERVER_ERROR",
