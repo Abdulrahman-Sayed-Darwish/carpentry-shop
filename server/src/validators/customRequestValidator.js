@@ -23,7 +23,9 @@ exports.createCustomRequestSchema = z.object({
     .optional(),
   woodType: z.string().trim().max(100).optional(),
   designImages: z
-    .array(z.string().url("رابط صورة غير صحيح"))
+    .array(z.string().url("رابط صورة غير صحيح"), {
+      invalid_type_error: "designImages لازم تكون مصفوفة روابط",
+    })
     .max(10, "أقصى عدد 10 صور")
     .optional(),
   description: z.string().trim().max(2000, "الوصف طويل جدًا").optional(),
