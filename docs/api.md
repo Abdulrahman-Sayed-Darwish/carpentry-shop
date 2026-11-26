@@ -323,6 +323,17 @@ Errors: `400 NO_FILE`, `400 INVALID_FILE_TYPE`, `400 FILE_TOO_LARGE`, `400 TOO_M
 
 Usage: upload first, then put the returned URLs in `images` / `designImages` of the other endpoints.
 
+### POST /uploads/custom (User)
+
+Same as `POST /uploads`, but for logged-in customers (and admins).
+
+- Field name: `images`, max **5** files (instead of 10)
+- Rate limit: 20 uploads / hour per IP
+- Guests cannot upload (`401`). Guests send custom requests without images.
+
+`201` → `{ "data": { "urls": ["https://..."] } }`
+Errors: `400 NO_FILE`, `400 INVALID_FILE_TYPE`, `400 FILE_TOO_LARGE`, `400 TOO_MANY_FILES`, `401`, `429`.
+
 ---
 
 ## Orders
